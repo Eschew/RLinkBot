@@ -13,7 +13,7 @@
 
 #Andrew Liu
 
-import praw, time, re, string, threading
+import praw, time, re, string, threading, time, sys
 from log_mod import log_writer
 
 #credential_location is the location of the username password in a txt file
@@ -25,9 +25,13 @@ class mailbox_operation(threading.Thread):
 			self.log = log_writer(log_location, id_name)
 			self.log.append("Mailboxscript start")
 			self.__log_in(cred_info)
+			self.can_run = True
+			self.perm_end = False
 		except Exception as e:
 			self.log.crash_handling("Unsucessful startup: "+str(e))
 			exit()
+
+		self.start()
 
 	def __log_in(self, cred_info):
 		try:
@@ -45,8 +49,34 @@ class mailbox_operation(threading.Thread):
 			exit()
 		self.log.append("Ready to run thread")
 
+	def toggle_pause(self):
+		if (self.can_run):
+			self.log.append("Paused mailbox thread")
+		else:
+			self.log.append("Resumed mailbox thread")
+		self.can_run = not self.can_run
+
+	def turn_off(self):
+		self.log.append("Permanently ended thread")
+		self.perm_end = True
+		self.log.close()
+
 	def run(self):
-		self.log.append("Starting runtime")
+		while(True):
+			if(self.perm_end):
+				break;
+			else:
+				if(self.can_run):
+					self.process()
+			time.sleep(10)
+
+	def emergency_exit(self, error):
+
+		self.log.append("Emergency exit: "+str(error)+" Line: "+str(sys.exc_info()[-1].tb_lineno))
+		self.turn_off()
+
+	def process(self):
+		self.log.append("Starting mailbox loop")
 		try:	
 			mb = self.__r.get_unread(limit=None)
 			for message in mb:
@@ -84,8 +114,7 @@ class mailbox_operation(threading.Thread):
 		except Exception as e:
 			self.log.crash_handling("Fatal error in runtime thread: "+str(e))
 
-		self.log.append("End mailbox search")
-		self.log.close()
+		self.log.append("End mailbox loop")
 
 
 

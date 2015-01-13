@@ -28,7 +28,7 @@ class log_writer:
 			self.__file = open(file_address, "r")
 			print("Open file at "+file_address)
 			self.__file = open(file_address, "a")
-			self.append("\n_____________________________\nOpen Log Operation")
+			self.append("Open Log Operation")
 		except(FileNotFoundError):
 			try:
 				self.__file = open(file_address, "a")
@@ -122,7 +122,7 @@ class log_writer:
 		if(self.__file.closed):
 			print("already closed")
 		else:
-			self.append("Close Log Operation\n_____________________________\n")
+			self.append("Close Log Operation")
 			self.__file.close()
 
 
