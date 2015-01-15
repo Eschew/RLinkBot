@@ -1,4 +1,4 @@
-import praw, time, re, string, threading, sys
+import praw, time, re, string, threading, queue, sys
 
 from mailboxstream import mailbox_operation
 from log_mod import log_writer
@@ -6,14 +6,17 @@ from log_mod import log_writer
 """Global Variable """
 r = 0 #Variable for the reddit praw wrapper
 bot_username = 0 #Bot username
+posted_ids = [] #previous comment ids
 
 banned_users = [] #List of banned users grabbed from the wikipages
 subreddit_ok_list = [] #same
 excluded_subs = [] #same
 
 log = log_writer("log.txt", "main_thread") #Log_writer object for recording events
-concluding_statement = "\n\n---\n\n*This is a bot! If you summoned this bot by accident, reply with 'delete' to remove it. If you want to stop it from posting on your comments, reply with 'unfollow'. If you would like to continue the bot's comments, reply with 'follow'*"
+concluding_statement = "\n\n---\n\n*This is a bot! If you summoned this bot by accident, reply with 'delete' to remove it. If you want to stop it from posting on your comments, reply with 'unfollow'. If you would like to continue the bot's comments, reply with 'follow'.*\n*If you have any questions or feedback, please send it to [/r/RLinkBot](http://www.reddit.com/r/RLinkBot/comments/2i6a8a/what_is_rlinkbot/)*"
 mailbox = 0 #Future mailthread
+data_queue = queue.Queue()
+submission_dict = {}
 
 def log_in():
 	"""
@@ -43,7 +46,7 @@ def build_mailbox_thread():
 	"""
 	log.append("Attempting to create mailbox thread")
 	global mailbox
-	mailbox = mailbox_operation("RedditParseBot.txt","log.txt")
+	mailbox = mailbox_operation("RedditParseBot.txt","log.txt",data_queue)
 	log.append("Successfully made mailbox thread")
 
 def setup_variables():
@@ -94,6 +97,43 @@ def searchForSubmission(submissionString):
 	except:
 		return None
 
+def update_follow():
+	"""
+	Using the data_queue object that was passed into the mailboxstream, it's possible
+	to communicate data in a thread-safe manner. This method adds and removes users from the
+	banned_user list. If needed, we can update the reddit wiki page after updating.
+	"""
+	while(not data_queue.empty()):
+		data = data_queue.get()
+		x = data.strip().split()
+
+		if x[0] == "-":
+			if x[1] in banned_users:
+				log.append(x[1]+" already on unfollow_list")
+				pass
+			else:
+				banned_users.append(x[1])
+				log.append(x[1]+" added to unfollow_list")
+		elif x[0] == '+':
+			while True:
+				try:
+					banned_users.remove(x[1])
+					log.append(x[1]+" removed from the unfollow_list")
+				except:
+					log.append("Error removing "+x[1]+" from unfollow list")
+					break
+
+	log.append("Preparing to update blacklist")
+	b = ""
+	for x in banned_users:
+		b = b+" "+x
+	try:
+		r.edit_wiki_page("eolabs", "bannedusers", b, "")
+		log.append("Finished blacklist update")
+	except:
+		log.append("Unable to save blacklist online")
+		pass
+
 def main():
 	"""
 	Using the comment stream to grab a new list of comments. This method
@@ -102,7 +142,10 @@ def main():
 
 	Messiest part of the program
 	"""
-	for comment in praw.helpers.comment_stream(r, 'lab002', None): #change lab002
+	for comment in praw.helpers.comment_stream(r, 'all', None): #change lab002
+		if not data_queue.empty():
+			log.append("Updating banned user list")
+			update_follow()
 		if comment.author is None:
 			continue
 		elif comment is None:
@@ -129,7 +172,7 @@ def main():
 						string_output = processed_submission(submissionThread, permalink_comment.permalink)
 						string_output = add_perma_comment(string_output,permalink_comment)
 						log.append("Found permalink for submission_id {0} p_id t1_{1}".format(has_permalink_comment[0][0],has_permalink_comment[0][1]))
-						#post_reply(string_output, comment)
+						post_reply(string_output, comment)
 					else:
 						continue	
 				elif has_link_material:
@@ -141,7 +184,7 @@ def main():
 						if not string_output:
 							continue
 						log.append("Found submission thread id {0}".format(has_link_material[0]))
-						#post_reply(string_output, comment)
+						post_reply(string_output, comment)
 					else:
 						continue
 
@@ -221,7 +264,11 @@ def add_comment_data(return_string, commentObj):
 	quoteString = re.sub(r"&amp;", "&", quoteString)
 	quoteString = re.sub(r"\n", "\n>>", quoteString)
 	quoteString = re.sub(r"&lt;", "<", quoteString)
-	return_string = return_string+"\n\n >**[+"+str(commentObj.ups)+"] "+name+"**: \n>"+quoteString+"\n"
+	if(commentObj.ups>0):
+		temp_str = "+"+str(commentObj.ups)
+	else:
+		temp_str = str(commentObj.ups)
+	return_string = return_string+"\n\n >**["+temp_str+"] "+name+"**: \n>"+quoteString+"\n"
 	return return_string
 
 def convertunix(timestamp):
@@ -246,16 +293,30 @@ def check_subreddit(comment):
 		return True
 	return False
 
+def check_submission_count(comment):
+	try:
+		s_id = comment.submission.id
+		count = submission_dict[s_id]
+		if(count<5):
+			submission_dict[s_id] = count+1
+			return True
+		else:
+			log.append("Maximum post count reached in thread: "+s_id)
+			return False
+	except KeyError:
+		submission_dict[s_id] = 1
+		return True
+
+
 def post_reply(reply, comment):
 	"""
 	Void function
 	Checks if the reply can be posted and whether if the bot has already responded to reply by recursively calling parent function
 	"""
-	if check_comment_id(comment) and check_subreddit(comment):
+	if check_submission_count(comment) and check_comment_id(comment) and check_subreddit(comment):
 		try:
 			if(check_reply_length(reply)):
 				a = comment.reply(reply)
-				posted_ids.append(comment.id)
 				log.append("Reply Posted for "+comment.id)
 			else:
 				log.append("Comment exceeds maximum length")
@@ -263,6 +324,8 @@ def post_reply(reply, comment):
 			log.append("Maximum rate limit posted")
 	else:
 		log.append("bad subs or already posted")
+
+	posted_ids.append(comment.id)
 
 def check_reply_length(reply):
 	"""
@@ -278,22 +341,37 @@ def emergency_exit(error):
 	In the event of a catasrophic failure, the program will initiate the emergency_exit which records the log,
 	updates the wiki page.
 	"""
+	save_data();
 	log.crash_handling("Emergency exit: "+str(error)+" Line: "+str(sys.exc_info()[2].tb_lineno))
 	log.close()
-	mailbox.emergency_exit(error)
+	#mailbox.emergency_exit(error)
 
 def save_data():
+	log.append("Starting back-up of datas on reddit wiki page")
 	b = ""
 	for x in banned_users:
 		b = b+" "+x
-
-	r.edit_wiki_page("eolabs", "bannedusers", "", b)
 
 	es = ""
 	for x in excluded_subs:
 		es = es+" "+x
 
-	r.edit_wiki_page("eolabs", "excludedsubs", "", es)
+	try:
+		r.edit_wiki_page("eolabs", "bannedusers", b, "")
+		r.edit_wiki_page("eolabs", "excludedsubs", es, "")
+		log.append("Finished backing up datas online")
+	except:
+		x = open("backup_banned_users.txt", "w")
+		x.write(b)
+		x.close()
+
+		y = open("backup_excluded_subs.txt", "w")
+		y.write(es)
+		y.close()
+
+		log.append("Finished backing up datas on file")
+
+
 
 """Init Sequence"""
 try:
@@ -305,10 +383,11 @@ try:
 except KeyboardInterrupt:
 	log.append("Keyboard Interrupt end program sequence")
 	save_data()
-
+	log.close()
+	mailbox.close()
+	exit()
 
 except Exception as e:
 	emergency_exit(e)
-	exit()
 
 

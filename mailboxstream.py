@@ -13,17 +13,18 @@
 
 #Andrew Liu
 
-import praw, time, re, string, threading, time, sys
+import praw, time, re, string, threading, time, sys, queue
 from log_mod import log_writer
 
 #credential_location is the location of the username password in a txt file
 #log_location is the location where the log_writer is writing logs too
 class mailbox_operation(threading.Thread):
-	def __init__(self, cred_info, log_location, id_name = "Mailbox"):
+	def __init__(self, cred_info, log_location, data_queue, id_name = "Mailbox"):
 		try:
 			threading.Thread.__init__(self)
 			self.log = log_writer(log_location, id_name)
 			self.log.append("Mailboxscript start")
+			self.data_queue = data_queue #Used to transfer information between mailboxthread and main
 			self.__log_in(cred_info)
 			self.can_run = True
 			self.perm_end = False
@@ -75,14 +76,32 @@ class mailbox_operation(threading.Thread):
 		self.log.append("Emergency exit: "+str(error)+" Line: "+str(sys.exc_info()[-1].tb_lineno))
 		self.turn_off()
 
+	def close(self):
+		self.log.close()
+		self.turn_off()
+
 	def process(self):
 		self.log.append("Starting mailbox loop")
 		try:	
 			mb = self.__r.get_unread(limit=None)
 			for message in mb:
+				if re.search("^follow", message.body.lower()):
+					self.log.append("Found follow message from "+message.author.name)
+					self.data_queue.put("+ "+message.author.name)
+					#send message
+					message.mark_as_read()
+					message.reply("RLinkBot can reply to your comments if you post a reddit link. If you don't want to be followed anymore, send a message with 'unfollow' as the body")
+
+				if re.search("^unfollow", message.body.lower()):
+					self.log.append("Found unfollow message from "+message.author.name)
+					self.data_queue.put("- "+message.author.name)
+					#send message
+					message.mark_as_read()
+					message.reply("RLinkBot can no longer reply to your comments. If you want to be be followed again, send a message with 'follow' as the body")
+
 				if re.search("^delete", message.body.lower()):
 					replied_comment = self.__r.get_info(thing_id = "t1_"+message.id)
-					self.log.append("Message found")
+					self.log.append("Found delete message")
 					if(not replied_comment.is_root):
 						parent_of_replied = self.__r.get_info(thing_id = replied_comment.parent_id)
 					else:
@@ -97,7 +116,6 @@ class mailbox_operation(threading.Thread):
 						message.mark_as_read()
 						continue
 					try:
-						print(parent_of_replied.author.name.lower() == self.bot_username.lower() and grandparent_of_replied.author.name.lower() == message.author.name.lower())
 						if(parent_of_replied.author.name.lower() == self.bot_username.lower() and grandparent_of_replied.author.name.lower() == message.author.name.lower()):
 							parent_of_replied.delete()
 							self.log.append("Sucessfully delete comment: t1_"+message.id)
@@ -109,7 +127,10 @@ class mailbox_operation(threading.Thread):
 						if(str(e) == "'NoneType' object has no attribute 'name'"):
 							parent_of_replied.delete()
 							self.log.append("Successfully deleted orphan comment: t1_"+message.id)
-							message.mark_as_read()		
+							message.mark_as_read()
+				message.mark_as_read()
+
+
 
 		except Exception as e:
 			self.log.crash_handling("Fatal error in runtime thread: "+str(e))
