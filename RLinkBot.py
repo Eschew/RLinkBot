@@ -142,7 +142,8 @@ def main():
 
 	Messiest part of the program
 	"""
-	for comment in praw.helpers.comment_stream(r, 'all', None): #change lab002
+	x = r.get_subreddit('funny+askreddit+worldnews+news+todayilearned+tifu+askscience+videos+pictures+aww')
+	for comment in praw.helpers.comment_stream(r, x, None): #change lab002
 		if not data_queue.empty():
 			log.append("Updating banned user list")
 			update_follow()
@@ -167,11 +168,11 @@ def main():
 					#The link leads to a permalink content
 					permalink_comment = r.get_info(thing_id="t1_"+has_permalink_comment[0][1]) #permalink content
 					submissionThread = searchForSubmission(has_permalink_comment[0][0]) #Submission thread
-					if(submissionThread):
+					if(submissionThread and (permalink_comment is not None)):
 						#There exists the submission thread
 						string_output = processed_submission(submissionThread, permalink_comment.permalink)
 						string_output = add_perma_comment(string_output,permalink_comment)
-						log.append("Found permalink for submission_id {0} p_id t1_{1}".format(has_permalink_comment[0][0],has_permalink_comment[0][1]))
+						log.append("Found permalink for submission_id {0} p_id t1_{1} at s_id t1_{2}".format(has_permalink_comment[0][0],has_permalink_comment[0][1],comment.id))
 						post_reply(string_output, comment)
 					else:
 						continue	
@@ -184,11 +185,11 @@ def main():
 						if not string_output:
 							continue
 						log.append("Found submission thread id {0}".format(has_link_material[0]))
-						post_reply(string_output, comment)
+						#post_reply(string_output, comment)
 					else:
 						continue
-
 	log.append("End of main sequence")
+
 
 def processed_submission(submissionObject, permalink_comment = None):
 	"""
@@ -279,10 +280,16 @@ def check_comment_id(comment):
 	"""
 	Determines whether the link has already been processed recently
 	"""
-	for single_comment in comment.replies:
-		if single_comment.id in posted_ids:
-			return False
+	if comment.id in posted_ids:
+		return False
 	return True
+	# try:
+	# 	for single_comment in comment.replies:
+	# 		if single_comment.id in posted_ids:
+	# 			return False
+	# 	return True
+	# except Exception as error:
+	# 	log.crash_handling("Emergency exit: "+str(error)+" Line: "+str(sys.exc_info()[2].tb_lineno))
 
 def check_subreddit(comment):
 	"""
@@ -313,7 +320,11 @@ def post_reply(reply, comment):
 	Void function
 	Checks if the reply can be posted and whether if the bot has already responded to reply by recursively calling parent function
 	"""
-	if check_submission_count(comment) and check_comment_id(comment) and check_subreddit(comment):
+	x=check_submission_count(comment)
+	y=check_comment_id(comment)
+	z=check_subreddit(comment)
+	if(x and y and z):
+		# if check_submission_count(comment) and check_comment_id(comment) and check_subreddit(comment):
 		try:
 			if(check_reply_length(reply)):
 				a = comment.reply(reply)
@@ -324,7 +335,6 @@ def post_reply(reply, comment):
 			log.append("Maximum rate limit posted")
 	else:
 		log.append("bad subs or already posted")
-
 	posted_ids.append(comment.id)
 
 def check_reply_length(reply):
@@ -344,7 +354,7 @@ def emergency_exit(error):
 	save_data();
 	log.crash_handling("Emergency exit: "+str(error)+" Line: "+str(sys.exc_info()[2].tb_lineno))
 	log.close()
-	#mailbox.emergency_exit(error)
+	mailbox.emergency_exit(error)
 
 def save_data():
 	log.append("Starting back-up of datas on reddit wiki page")
@@ -389,5 +399,6 @@ except KeyboardInterrupt:
 
 except Exception as e:
 	emergency_exit(e)
+	exit()
 
 
