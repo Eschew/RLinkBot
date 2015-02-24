@@ -13,7 +13,7 @@ subreddit_ok_list = [] #same
 excluded_subs = [] #same
 
 log = log_writer("log.txt", "main_thread") #Log_writer object for recording events
-concluding_statement = "\n\n---\n\n*This is a bot! If you summoned this bot by accident, reply with 'delete' to remove it. If you want to stop it from posting on your comments, reply with 'unfollow'. If you would like to continue the bot's comments, reply with 'follow'.*\n*If you have any questions or feedback, please send it to [/r/RLinkBot](http://www.reddit.com/r/RLinkBot/comments/2i6a8a/what_is_rlinkbot/)*"
+concluding_statement = "\n\n---\n\n*^This ^is ^a ^bot! ^If ^you ^summoned ^this ^bot ^by ^accident, ^reply ^with ^'delete' ^to ^remove ^it. ^If ^you ^want ^to ^stop ^it ^from ^posting ^on ^your ^comments, ^reply ^with ^'unfollow'. ^If ^you ^would ^like ^to ^continue ^the ^bot's ^comments, ^reply ^with ^'follow'.*"
 mailbox = 0 #Future mailthread
 data_queue = queue.Queue()
 submission_dict = {}
@@ -142,8 +142,8 @@ def main():
 
 	Messiest part of the program
 	"""
-	x = r.get_subreddit('funny+askreddit+worldnews+news+todayilearned+tifu+askscience+videos+pictures+aww')
-	for comment in praw.helpers.comment_stream(r, x, None): #change lab002
+	#x = r.get_subreddit('funny+askreddit+worldnews+news+todayilearned+tifu+askscience+videos+pictures+aww')
+	for comment in praw.helpers.comment_stream(r, "lab002", None): #change lab002
 		if not data_queue.empty():
 			log.append("Updating banned user list")
 			update_follow()
